@@ -1,0 +1,5 @@
+NFSU2.xcodeproj/
+build/
+Payload/
+*.ipa
+.DS_Store
