@@ -6,13 +6,14 @@ struct GameContainer: View {
     let url: URL
     let token: String
     let username: String
+    var auto = true                 // false: the page's own start screen (cloud saves, settings), no auto-play
     let onExit: () -> Void
     @State private var showExit = false
     @State private var revealCount = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            GameWebView(url: url, token: token, username: username)
+            GameWebView(url: url, token: token, username: username, auto: auto)
 
             // Tap the top-left corner to reveal the exit button.
             Color.clear
@@ -48,6 +49,7 @@ struct GameWebView: UIViewRepresentable {
     let url: URL
     let token: String
     let username: String
+    var auto = true
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
@@ -67,7 +69,7 @@ struct GameWebView: UIViewRepresentable {
 
         // The app already asked for the username: cover the launcher page with a plain splash, press the
         // page's own Play the moment it is ready, and lift the splash once the game canvas is up.
-        let auto = #"""
+        let autoJS = #"""
         (function(){
           var t0=Date.now(),tc=0,clicked=false,gone=false;
           function splash(){
@@ -94,8 +96,10 @@ struct GameWebView: UIViewRepresentable {
           },250);
         })();
         """#
-        cfg.userContentController.addUserScript(
-            WKUserScript(source: auto, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if self.auto {
+            cfg.userContentController.addUserScript(
+                WKUserScript(source: autoJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
 
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.navigationDelegate = context.coordinator
