@@ -26,7 +26,7 @@ struct RootView: View {
                 launcher
             case .installing:
                 InstallView(token: token,
-                            onDone: { installed = true; UserDefaults.standard.set(true, forKey: "dataInstalled") },
+                            onDone: { installed = true; UserDefaults.standard.set(true, forKey: "dataInstalled"); stage = .playing },
                             onClose: { stage = .launcher })
             case .playing:
                 GameContainer(url: URL(string: kServer)!, token: token, username: username) { stage = .launcher }
@@ -42,15 +42,18 @@ struct RootView: View {
         token = t; username = u
         switch await AuthAPI.check(token: t) {
         case .some(false): clear(); stage = .login
-        default: stage = .launcher          // valid, or offline: let the player try
+        default: enter()                    // valid, or offline: straight into the game
         }
     }
 
     private func signedIn(_ t: String, _ u: String) {
         Keychain.set(t, for: kTokenKey); Keychain.set(u, for: kUserKey)
         token = t; username = u
-        stage = .launcher
+        enter()
     }
+
+    /// Logged in: the game starts at once; on a fresh install the game data comes first, then the game.
+    private func enter() { stage = installed ? .playing : .installing }
 
     private func clear() {
         Keychain.delete(kTokenKey); Keychain.delete(kUserKey)
