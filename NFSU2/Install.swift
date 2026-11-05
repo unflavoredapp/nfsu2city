@@ -19,35 +19,44 @@ struct InstallView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Backdrop()
             // The page has to stay in the view tree for its download worker to keep running.
             InstallWebView(token: token) { st = $0 }
                 .frame(width: 2, height: 2).opacity(0.02)
                 .position(x: 1, y: 1)
 
-            VStack(spacing: 14) {
-                Text("GAME DATA")
-                    .font(.system(size: 13, weight: .heavy, design: .monospaced))
-                    .tracking(4).foregroundColor(.gray)
-                Text(st.done ? "Installed" : (st.running ? "\(Int(st.pct))%" : "Preparing…"))
-                    .font(.system(size: 34, weight: .black, design: .rounded))
-                    .foregroundColor(.white)
-                ProgressView(value: st.done ? 100 : st.pct, total: 100)
-                    .tint(Color(red: 0.0, green: 0.55, blue: 1.0))
-                    .frame(maxWidth: 380)
-                Text(st.info)
-                    .font(.system(size: 13)).foregroundColor(.white.opacity(0.7))
-                    .multilineTextAlignment(.center).frame(maxWidth: 420)
-                Text(st.done ? "Everything is on this device." : "Keep the app open. If it stops, open this again: it continues where it left off.")
-                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.45))
-                    .multilineTextAlignment(.center).frame(maxWidth: 420)
-                Button(action: onClose) {
-                    Text(st.done ? "DONE" : "CLOSE").font(.system(size: 15, weight: .heavy)).tracking(2)
-                        .padding(.horizontal, 40).padding(.vertical, 10)
-                        .background(Color.white.opacity(0.14)).cornerRadius(10).foregroundColor(.white)
+            DesignCanvas {
+                VStack(spacing: 8) {
+                    Image("Logo").resizable().scaledToFit().frame(height: 46)
+                    HStack(spacing: 12) {
+                        Slashes(height: 20)
+                        BrandMark(size: 26, showSlashes: false)
+                        Slashes(height: 20)
+                    }
+                    VStack(spacing: 10) {
+                        HStack(spacing: 14) {
+                            Rectangle().fill(Theme.orange).frame(height: 2).frame(maxWidth: 80)
+                            Text("GAME  DATA").font(.system(size: 13, weight: .heavy)).tracking(5).foregroundColor(.white.opacity(0.85))
+                            Rectangle().fill(Theme.orange).frame(height: 2).frame(maxWidth: 80)
+                        }
+                        Text(st.done ? "Installed" : (st.running ? "\(Int(st.pct))%" : "Preparing\u{2026}"))
+                            .font(.system(size: 44, weight: .black, design: .rounded)).italic()
+                            .foregroundColor(.white)
+                            .shadow(color: .white.opacity(0.5), radius: 8)
+                        OrangeBar(value: st.done ? 100 : st.pct)
+                        Text(st.info)
+                            .font(.system(size: 13, weight: .bold)).foregroundColor(.white)
+                            .multilineTextAlignment(.center).frame(maxWidth: 420)
+                        Text(st.done ? "Everything is on this device." : "Keep the app open. If it stops, open this again: it continues where it left off.")
+                            .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+                            .multilineTextAlignment(.center).frame(maxWidth: 420)
+                        OutlineButton(title: st.done ? "DONE" : "CLOSE", action: onClose)
+                    }
+                    .padding(.horizontal, 28).padding(.vertical, 16)
+                    .frame(width: 480)
+                    .glassCard()
                 }
             }
-            .padding(24)
         }
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }

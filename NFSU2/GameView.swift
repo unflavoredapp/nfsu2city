@@ -65,10 +65,37 @@ struct GameWebView: UIViewRepresentable {
         cfg.userContentController.addUserScript(
             WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
-        // The app already asked for the username: press the page's own Play for the player once it is ready.
-        let auto = "(function(){var n=0,t=setInterval(function(){var b=document.getElementById('play');if(b&&!b.disabled){clearInterval(t);b.click()}else if(++n>240){clearInterval(t)}},250)})();"
+        // The app already asked for the username: cover the launcher page with a plain splash, press the
+        // page's own Play the moment it is ready, and lift the splash once the game canvas is up.
+        let auto = #"""
+        (function(){
+          var t0=Date.now(),tc=0,clicked=false,gone=false;
+          function splash(){
+            if(gone||document.getElementById('nfsu2-splash')||!document.documentElement)return;
+            var o=document.createElement('div');o.id='nfsu2-splash';
+            o.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font:italic 800 30px -apple-system,Helvetica,sans-serif;letter-spacing:1px';
+            o.innerHTML='<div>NFSU2.CITY</div><div id="nfsu2-sp" style="margin-top:14px;font:500 14px -apple-system,Helvetica,sans-serif;color:#999;letter-spacing:0">Loading\u2026</div>';
+            document.documentElement.appendChild(o);
+          }
+          function lift(){gone=true;clearInterval(iv);var o=document.getElementById('nfsu2-splash');if(o)o.remove();}
+          splash();
+          var iv=setInterval(function(){
+            splash();
+            var sp=document.getElementById('nfsu2-sp');
+            if(sp&&document.body){var m=(document.body.innerText||'').match(/Loading the game:[^\n]*/);if(m)sp.textContent=m[0];else if(clicked)sp.textContent='Starting\u2026';}
+            if(!clicked){
+              var b=document.getElementById('play');
+              if(b&&!b.disabled){clicked=true;tc=Date.now();b.click();}
+              else if(Date.now()-t0>90000){lift();}
+            }else{
+              var c=document.querySelector('canvas'),age=Date.now()-tc;
+              if((c&&c.offsetWidth>0&&age>1500)||age>12000)lift();
+            }
+          },250);
+        })();
+        """#
         cfg.userContentController.addUserScript(
-            WKUserScript(source: auto, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+            WKUserScript(source: auto, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.navigationDelegate = context.coordinator
