@@ -33,6 +33,8 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
     private var doneSum: Int64 = 0
     private var inflight: [Int: Int64] = [:]
     private var attempts: [String: Int] = [:]
+    private var live = Set<String>()          // files with a transfer running (never two for one file)
+    private var high: Int64 = 0               // the figure shown only goes up
 
     static var stageDir: URL {
         let fm = FileManager.default
@@ -73,12 +75,17 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
         doneSet = Set(p.filter { FileManager.default.fileExists(atPath: haveURL($0.k).path) }.map { $0.k })
         doneSum = p.filter { doneSet.contains($0.k) }.reduce(0) { $0 + $1.s }
         totalBytes = p.reduce(0) { $0 + $1.s }
+        high = 0
         publish()
         complete = !p.isEmpty && doneSet.count == p.count
         active = !p.isEmpty && !complete
     }
 
-    private func publish() { doneBytes = doneSum + inflight.values.reduce(0, +) }
+    private func publish() {
+        let v = min(totalBytes, doneSum + inflight.values.reduce(0, +))
+        high = max(high, v)
+        if doneBytes != high { doneBytes = high }
+    }
 
     /// Files of the server's list this download takes: the game's core data (not the movies, texture and language
     /// packs, or the alternate songs, which the page fetches itself when they are wanted).
@@ -128,8 +135,15 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
             if skip.contains(k) { continue }
             p.append(PlanFile(k: k, p: path, s: s))
         }
+        if !plan.isEmpty, Set(plan.map { $0.k }) == Set(p.map { $0.k }) {          // the same download, already going: leave it
+            Self.askNotifications()
+            let pending: [URLSessionTask] = await withCheckedContinuation { c in session.getAllTasks { c.resume(returning: $0) } }
+            live = Set(pending.compactMap { $0.taskDescription })
+            enqueueMissing(token: token)
+            return p.count - doneSet.count
+        }
         session.getAllTasks { $0.forEach { $0.cancel() } }
-        inflight.removeAll(); attempts.removeAll()
+        inflight.removeAll(); attempts.removeAll(); live.removeAll()
         try? JSONEncoder().encode(p).write(to: Self.planURL, options: .atomic)
         setPlan(p)
         if p.isEmpty { return 0 }
@@ -144,6 +158,7 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
         guard !plan.isEmpty, !complete else { return }
         let pending: [URLSessionTask] = await withCheckedContinuation { c in session.getAllTasks { c.resume(returning: $0) } }
         let have = Set(pending.compactMap { $0.taskDescription })
+        live = have
         enqueueMissing(token: token, except: have)
     }
 
@@ -152,7 +167,8 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
 
     private func enqueue(_ f: PlanFile, token: String) {
-        guard let u = url(for: f) else { return }
+        guard !live.contains(f.k), !doneSet.contains(f.k), let u = url(for: f) else { return }
+        live.insert(f.k)
         var r = URLRequest(url: u)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let t = session.downloadTask(with: r)
@@ -169,7 +185,7 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
     /// Staging is emptied (after its files went into the game's storage, or a cancel).
     func reset() {
         try? FileManager.default.removeItem(at: Self.stageDir)
-        plan = []; byKey = [:]; doneSet = []; doneSum = 0; inflight = [:]; attempts = [:]
+        plan = []; byKey = [:]; doneSet = []; doneSum = 0; inflight = [:]; attempts = [:]; live = []; high = 0
         doneBytes = 0; totalBytes = 0; active = false; complete = false
     }
 
@@ -188,7 +204,8 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
     // -------------------------------------------------------------- delegate --
     func urlSession(_ s: URLSession, downloadTask t: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        inflight[t.taskIdentifier] = totalBytesWritten
+        guard let k = t.taskDescription, let f = byKey[k], !doneSet.contains(k) else { return }
+        inflight[t.taskIdentifier] = min(totalBytesWritten, f.s)
         publish()
     }
 
@@ -212,6 +229,7 @@ final class BGDownload: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
     func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError e: Error?) {
         inflight[t.taskIdentifier] = nil
+        if let k = t.taskDescription { live.remove(k) }
         if let k = t.taskDescription, !doneSet.contains(k), (e as NSError?)?.code != NSURLErrorCancelled, byKey[k] != nil {
             let n = (attempts[k] ?? 0) + 1
             attempts[k] = n
