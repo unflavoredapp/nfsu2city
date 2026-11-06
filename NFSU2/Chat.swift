@@ -118,7 +118,7 @@ struct ChatOverlay: View {
                 }
             }
         }
-        .padding(.top, 10).padding(.trailing, 52)
+        .padding(.top, 62).padding(.trailing, 52)      // under the game's own top-right button, not on it
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .animation(.easeOut(duration: 0.15), value: open)
         .onAppear { chat.start() }

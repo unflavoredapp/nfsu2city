@@ -62,7 +62,17 @@ struct VoiceOverlay: View {
     @AppStorage("voiceMode") private var mode = "ptt"
     @State private var held = false
 
+    /// only while there is something to do: not on the loading screen, menus or anywhere outside free roam
+    private var shown: Bool { !v.status.isEmpty && v.status != "Waiting for free roam" }
+
     var body: some View {
+        ZStack {
+            if shown { overlay }
+        }
+        .animation(.easeInOut(duration: 0.2), value: shown)
+    }
+
+    private var overlay: some View {
         ZStack {
             VStack(alignment: .trailing, spacing: 4) {
                 ForEach(v.speaking.prefix(5), id: \.self) { n in
@@ -75,7 +85,7 @@ struct VoiceOverlay: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(.top, 56).padding(.trailing, 52)
+            .padding(.top, 66).padding(.trailing, 100)
             .allowsHitTesting(false)
 
             VStack(spacing: 4) {
