@@ -27,6 +27,8 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Proximity voice chat lets you talk to drivers near you in free roam.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

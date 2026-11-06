@@ -11,12 +11,14 @@ struct GameContainer: View {
     @State private var showExit = false
     @State private var revealCount = 0
     @AppStorage("chatOn") private var chatOn = true
+    @AppStorage("voiceOn") private var voiceOn = true
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             GameWebView(url: url, token: token, username: username, auto: auto)
 
             if auto && chatOn { ChatOverlay(token: token, username: username) }
+            if auto && voiceOn { VoiceOverlay() }
 
             // Tap the top-left corner to reveal the exit button.
             Color.clear
@@ -34,8 +36,14 @@ struct GameContainer: View {
                 .padding(.leading, 20).padding(.top, 12)
             }
         }
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            if auto && voiceOn { VoiceModel.configureAudio() }
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            VoiceModel.shared.reset()
+        }
     }
 
     private func reveal() {
@@ -104,8 +112,18 @@ struct GameWebView: UIViewRepresentable {
                 WKUserScript(source: autoJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
 
+        // Proximity voice: the page-side script, and the channel it reports who is talking on.
+        if auto && VoiceModel.enabled {
+            let boot = "window.NFSU2_VOICE={mode:\(jsString(VoiceModel.mode)),flip:\(VoiceModel.flip ? "true" : "false")};"
+            cfg.userContentController.addUserScript(
+                WKUserScript(source: boot + VoiceScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+            cfg.userContentController.add(VoiceHandler(), name: "voice")
+        }
+
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.navigationDelegate = context.coordinator
+        wv.uiDelegate = context.coordinator
+        if auto && VoiceModel.enabled { Task { @MainActor in VoiceModel.shared.webView = wv } }
         wv.allowsBackForwardNavigationGestures = false
         wv.isOpaque = false
         wv.backgroundColor = .black
@@ -134,12 +152,21 @@ struct GameWebView: UIViewRepresentable {
         return String(arr.dropFirst().dropLast())
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let url: URL
         weak var webView: WKWebView?
         private var retries = 0
 
         init(url: URL) { self.url = url }
+
+        // The page's microphone (proximity voice): granted for our own site only.
+        @available(iOS 15.0, *)
+        func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                     initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                     decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            let ok = type == .microphone && (origin.host == "nfsu2.city" || origin.host.hasSuffix(".nfsu2.city"))
+            decisionHandler(ok ? .grant : .deny)
+        }
 
         // iOS killed the web content process (memory): bring the page straight back.
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

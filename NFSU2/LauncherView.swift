@@ -39,6 +39,9 @@ struct LauncherView: View {
     @State private var players: PlayerCount?
     @ObservedObject private var dl = BGDownload.shared
     @AppStorage("chatOn") private var chatOn = true
+    @AppStorage("voiceOn") private var voiceOn = true
+    @AppStorage("voiceMode") private var voiceMode = "ptt"
+    @AppStorage("voiceFlip") private var voiceFlip = false
 
     /// Space and connection checks first, then the game data download.
     private func startInstall(update: Bool = false) {
@@ -201,19 +204,23 @@ struct LauncherView: View {
 
     // -------------------------------------------------------------- tabs --
     private var settings: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             title("SETTINGS")
-            row("Signed in as", username)
-            row("Free-roam name", username)
-            Toggle(isOn: $chatOn) {
-                HStack {
-                    Image(systemName: "bubble.left.and.bubble.right").foregroundColor(Theme.orange)
-                    Text("In-game chat").font(.system(size: 13, weight: .bold)).foregroundColor(.white)
+            row("Signed in as (free-roam name)", username)
+            HStack(spacing: 8) {
+                switchCard("bubble.left.and.bubble.right", "In-game chat", $chatOn)
+                switchCard("waveform", "Proximity voice", $voiceOn)
+            }
+            if voiceOn {
+                HStack(spacing: 8) {
+                    Picker("", selection: $voiceMode) {
+                        Text("Push-to-talk").tag("ptt")
+                        Text("Open mic").tag("open")
+                    }
+                    .pickerStyle(.segmented)
+                    switchCard("arrow.left.arrow.right", "Flip L/R", $voiceFlip)
                 }
             }
-            .tint(Theme.orange)
-            .padding(.horizontal, 14).padding(.vertical, 6)
-            .background(Color.black.opacity(0.35)).cornerRadius(12)
             Button(action: { go(.panel) }) {
                 HStack {
                     Image(systemName: "icloud").foregroundColor(Theme.orange)
@@ -221,14 +228,26 @@ struct LauncherView: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
                 }
-                .padding(.horizontal, 14).padding(.vertical, 9)
+                .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(Color.black.opacity(0.35)).cornerRadius(12)
             }
             .buttonStyle(.plain)
             OutlineButton(title: "LOG OUT", action: onLogout)
         }
-        .padding(.horizontal, 22).padding(.vertical, 18)
+        .padding(.horizontal, 22).padding(.vertical, 12)
         .glassCard()
+    }
+
+    private func switchCard(_ icon: String, _ text: String, _ on: Binding<Bool>) -> some View {
+        Toggle(isOn: on) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).foregroundColor(Theme.orange)
+                Text(text).font(.system(size: 12, weight: .bold)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
+            }
+        }
+        .tint(Theme.orange)
+        .padding(.horizontal, 12).padding(.vertical, 5)
+        .background(Color.black.opacity(0.35)).cornerRadius(12)
     }
 
     private var about: some View {
