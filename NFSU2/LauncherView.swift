@@ -38,6 +38,7 @@ struct LauncherView: View {
     @State private var alert: PreAlert?
     @State private var players: PlayerCount?
     @ObservedObject private var dl = BGDownload.shared
+    @AppStorage("chatOn") private var chatOn = true
 
     /// Space and connection checks first, then the game data download.
     private func startInstall(update: Bool = false) {
@@ -203,8 +204,16 @@ struct LauncherView: View {
         VStack(spacing: 12) {
             title("SETTINGS")
             row("Signed in as", username)
-            row("Server", "nfsu2.city")
             row("Free-roam name", username)
+            Toggle(isOn: $chatOn) {
+                HStack {
+                    Image(systemName: "bubble.left.and.bubble.right").foregroundColor(Theme.orange)
+                    Text("In-game chat").font(.system(size: 13, weight: .bold)).foregroundColor(.white)
+                }
+            }
+            .tint(Theme.orange)
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .background(Color.black.opacity(0.35)).cornerRadius(12)
             Button(action: { go(.panel) }) {
                 HStack {
                     Image(systemName: "icloud").foregroundColor(Theme.orange)

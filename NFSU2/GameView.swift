@@ -10,10 +10,13 @@ struct GameContainer: View {
     let onExit: () -> Void
     @State private var showExit = false
     @State private var revealCount = 0
+    @AppStorage("chatOn") private var chatOn = true
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             GameWebView(url: url, token: token, username: username, auto: auto)
+
+            if auto && chatOn { ChatOverlay(token: token, username: username) }
 
             // Tap the top-left corner to reveal the exit button.
             Color.clear
