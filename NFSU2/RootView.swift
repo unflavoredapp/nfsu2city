@@ -27,7 +27,7 @@ struct RootView: View {
                              go: { stage = $0 },
                              onLogout: { logOut() })
             case .installing:
-                InstallView(token: token, onDone: { installDone() }, onClose: { stage = .launcher })
+                DataSetupView(token: token, onDone: { installDone() }, onClose: { stage = .launcher })
             case .offer:
                 BackupView(token: token, mode: .offer) { _ in stage = .playing }
             case .backup:
@@ -67,7 +67,7 @@ struct RootView: View {
     /// Logged in: with the game data on the phone the game starts at once; on a fresh install the home
     /// screen offers the one-time game data download first.
     private func enter() {
-        guard installed else { stage = .launcher; return }
+        guard installed else { stage = BGDownload.shared.complete ? .installing : .launcher; return }    // downloaded while away: finish it
         stage = .checking
         let t = token
         Task {

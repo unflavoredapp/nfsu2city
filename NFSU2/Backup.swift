@@ -66,7 +66,7 @@ struct FolderPicker: UIViewControllerRepresentable {
 /// Copies the game data and the saves between the game's storage and the backup folder.
 @MainActor
 final class BackupJob: ObservableObject {
-    enum Kind { case backup, restore }
+    enum Kind { case backup, restore, stage }
 
     let bridge: OPFSBridge
     @Published var pct = 0.0
@@ -89,11 +89,23 @@ final class BackupJob: ObservableObject {
     func cancel() { task?.cancel() }
 
     private func run(_ kind: Kind) async {
-        guard let folder = BackupStore.open() else { failure = "No backup folder is chosen."; running = false; return }
-        defer { folder.stopAccessingSecurityScopedResource(); running = false }
+        var scoped: URL?
+        if kind != .stage {
+            guard let f = BackupStore.open() else { failure = "No backup folder is chosen."; running = false; return }
+            scoped = f
+        }
+        defer { scoped?.stopAccessingSecurityScopedResource(); running = false }
         do {
             try await bridge.prepare()
-            if kind == .backup { try await backup(folder) } else { try await restore(folder) }
+            switch kind {
+            case .backup:
+                try await backup(scoped!)
+            case .restore:
+                try await restore(from: scoped!.appendingPathComponent(BackupStore.dirName, isDirectory: true), deleteAfter: false, requireInfo: true)
+            case .stage:
+                try await restore(from: BGDownload.stageDir, deleteAfter: true, requireInfo: false)
+                BGDownload.shared.reset()
+            }
             finished = true
         } catch is CancellationError {
             message = "Stopped. Start it again and it carries on."
@@ -178,13 +190,12 @@ final class BackupJob: ObservableObject {
     }
 
     // --------------------------------------------------------------- restore --
-    private func restore(_ folder: URL) async throws {
+    private func restore(from root: URL, deleteAfter: Bool, requireInfo: Bool) async throws {
         let fm = FileManager.default
-        let root = folder.appendingPathComponent(BackupStore.dirName, isDirectory: true)
-        guard fm.fileExists(atPath: root.appendingPathComponent("info.json").path) else {
+        if requireInfo && !fm.fileExists(atPath: root.appendingPathComponent("info.json").path) {
             throw BridgeError("There is no NFSU2 backup in that folder.")
         }
-        message = "Reading the backup\u{2026}"
+        message = requireInfo ? "Reading the backup\u{2026}" : "Moving the game data into the game\u{2026}"
         var files: [(rel: String, url: URL, size: Int64)] = []
         let base = root.pathComponents.count
         if let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) {
@@ -193,6 +204,7 @@ final class BackupJob: ObservableObject {
                 guard v?.isRegularFile == true else { continue }
                 let rel = u.pathComponents.dropFirst(base).joined(separator: "/")
                 if rel == "info.json" || rel.hasSuffix(".part") { continue }
+                if !requireInfo && !rel.hasPrefix("cache/") { continue }
                 files.append((rel, u, Int64(v?.fileSize ?? 0)))
             }
         }
@@ -215,8 +227,10 @@ final class BackupJob: ObservableObject {
             }
         }
         let total = max(1, todo.reduce(Int64(0)) { $0 + $1.size })
-        if let free = Device.freeBytes(), !todo.isEmpty, free < total + 700_000_000 {
-            throw BridgeError("Not enough space on this phone: it needs about \(formatBytes(total + 700_000_000)), \(formatBytes(free)) is free.")
+        // moving staged files frees each as it goes, so only the largest file's working room is needed
+        let need = deleteAfter ? 700_000_000 : total + 700_000_000
+        if let free = Device.freeBytes(), !todo.isEmpty, free < need {
+            throw BridgeError("Not enough space on this phone: it needs about \(formatBytes(need)), \(formatBytes(free)) is free.")
         }
 
         var done: Int64 = 0
@@ -238,6 +252,11 @@ final class BackupJob: ObservableObject {
                 await bridge.abortWrite()
                 throw error
             }
+            if deleteAfter { try? fm.removeItem(at: f.url) }
+        }
+        if deleteAfter {                      // what the game's storage already had whole is not needed twice
+            let moved = Set(todo.map { $0.rel })
+            for f in files where !moved.contains(f.rel) { try? fm.removeItem(at: f.url) }
         }
         message = "Checking the game data\u{2026}"
         let r = try await bridge.verify(deleteOrphans: false)

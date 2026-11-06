@@ -37,6 +37,7 @@ struct LauncherView: View {
     @State private var tab = LauncherTab.home
     @State private var alert: PreAlert?
     @State private var players: PlayerCount?
+    @ObservedObject private var dl = BGDownload.shared
 
     /// Space and connection checks first, then the game data download.
     private func startInstall(update: Bool = false) {
@@ -148,7 +149,12 @@ struct LauncherView: View {
                 Chip(icon: "cylinder.split.1x2.fill", text: "Local Game Data")
                 Chip(icon: "wifi.slash", text: "Offline Play")
             }
-            if installed {
+            if dl.active || dl.complete {
+                OrangeButton(title: dl.complete ? "FINISH SETUP" : "DOWNLOADING \(dl.totalBytes > 0 ? Int(Double(dl.doneBytes) / Double(dl.totalBytes) * 100) : 0)%",
+                             icon: dl.complete ? "checkmark.circle" : "arrow.down.circle") { go(.installing) }
+                Text(dl.complete ? "The game data is downloaded. Tap to finish." : "Downloading in the background. You can leave the app.")
+                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.65))
+            } else if installed {
                 OrangeButton(title: "PLAY", icon: "play.fill") { play() }
                 Text("Game data is on this phone.").font(.system(size: 12)).foregroundColor(.white.opacity(0.65))
             } else {
