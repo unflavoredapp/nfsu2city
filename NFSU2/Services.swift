@@ -54,6 +54,15 @@ struct PlayerCount {
     var online: Int
 }
 
+struct Profile {
+    var name: String?
+    var level: Int?
+    var xp: Int?
+    var xpNext: Int?        // XP needed for the next level
+    var country: String?    // 2-letter code (shown as a flag) or a name
+    var avatar: String?     // GIPHY id / link, another image URL (absolute or relative to the server), or a data: URI
+}
+
 enum ServerAPI {
     private static func get(_ path: String, token: String) async -> Data? {
         guard let url = URL(string: kServer + path) else { return nil }
@@ -71,6 +80,38 @@ enum ServerAPI {
         let n = (j["players"] as? NSNumber)?.intValue ?? 0
         let roam = (j["roam"] as? NSNumber)?.intValue
         return PlayerCount(inRoam: roam ?? n, online: (j["online"] as? NSNumber)?.intValue ?? n)
+    }
+
+    /// The player's gamer-card data, read from the account response (auth/me). Field names are matched loosely
+    /// (level/lvl, xp/exp, country/countryCode, avatar/picture...), top level or inside user/profile/stats.
+    static func profile(token: String) async -> Profile? {
+        guard let d = await get("auth/me", token: token),
+              let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        var flat: [String: Any] = [:]
+        for k in ["data", "stats", "profile", "player", "user"] {
+            if let sub = root[k] as? [String: Any] { for (a, b) in sub { flat[a.lowercased()] = b } }
+        }
+        for (a, b) in root { flat[a.lowercased()] = b }          // top level wins
+        func num(_ keys: [String]) -> Int? {
+            for k in keys {
+                if let v = flat[k] {
+                    if let n = v as? NSNumber { return n.intValue }
+                    if let s = v as? String, let n = Double(s) { return Int(n) }
+                }
+            }
+            return nil
+        }
+        func str(_ keys: [String]) -> String? {
+            for k in keys { if let s = flat[k] as? String, !s.isEmpty { return s } }
+            return nil
+        }
+        return Profile(
+            name: str(["username", "name", "displayname"]),
+            level: num(["level", "lvl"]),
+            xp: num(["xp", "exp", "experience", "currentxp"]),
+            xpNext: num(["xpnext", "nextxp", "xpmax", "nextlevelxp", "xpfornext", "xpneeded", "levelxp"]),
+            country: str(["country", "countrycode", "cc", "flag"]),
+            avatar: str(["giphy", "giphyurl", "giphyid", "gif", "gifurl", "avatargif", "avatar", "avatarurl", "picture", "photo", "image", "pfp", "icon"]))
     }
 
     struct Mod: Identifiable {
