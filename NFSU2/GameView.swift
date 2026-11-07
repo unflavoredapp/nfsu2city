@@ -13,22 +13,14 @@ struct GameContainer: View {
     @AppStorage("chatOn") private var chatOn = true
     @AppStorage("voiceOn") private var voiceOn = true
     @StateObject private var splash = SplashModel()
-    @State private var continued = false        // the gamer card's Continue was tapped
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             GameWebView(url: url, token: token, username: username, auto: auto, splash: auto ? splash : nil)
 
-            // 1) Starting / loading screen on the loading-screen art, over the page until the game canvas is up.
+            // Starting / loading screen on the loading-screen art, over the page until the game canvas is up.
             if auto && !splash.done {
                 GameLoadingView(model: splash).transition(.opacity)
-            }
-            // 2) Then the gamer card with Continue, on the same picture, instead of the game's frozen first frame.
-            if auto && splash.done && !continued {
-                GamerCardView(username: username, token: token) {
-                    withAnimation(.easeOut(duration: 0.3)) { continued = true }
-                }
-                .transition(.opacity)
             }
 
             if auto && chatOn { ChatOverlay(token: token, username: username) }
