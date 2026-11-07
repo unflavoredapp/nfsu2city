@@ -15,15 +15,42 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate project
-        run: xcodegen generate
+        run: |
+          set -o pipefail
+          xcodegen generate 2>&1 | tee xcodegen.log
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild -project NFSU2.xcodeproj -scheme NFSU2 \
             -configuration Release -sdk iphoneos \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
+
+      # Runs even when the build failed: pulls the compiler errors out of the log, shows them on the run's
+      # summary page, and bundles everything into the "build-error-log" artifact (a zip you can download).
+      - name: Collect error log
+        if: always()
+        run: |
+          mkdir -p error-log
+          cp -f xcodegen.log build.log error-log/ 2>/dev/null || true
+          {
+            echo "### Build errors"
+            echo '```'
+            grep -hE "error:|\*\* BUILD (FAILED|SUCCEEDED)|fatal error|Command .* failed" xcodegen.log build.log 2>/dev/null | sort -u | head -100
+            echo '```'
+          } > error-log/errors.md
+          cat error-log/errors.md >> "$GITHUB_STEP_SUMMARY"
+          echo "--- errors ---"; cat error-log/errors.md
+
+      - name: Upload error log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-error-log
+          path: error-log/
+          if-no-files-found: ignore
 
       - name: Package IPA
         run: |

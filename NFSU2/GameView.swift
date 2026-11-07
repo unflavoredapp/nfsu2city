@@ -49,7 +49,7 @@ struct GameContainer: View {
         .task {
             // safety net: never leave the loading screen up for good if the page never reports back
             try? await Task.sleep(nanoseconds: 100_000_000_000)
-            splash.finish()
+            await MainActor.run { splash.finish() }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
