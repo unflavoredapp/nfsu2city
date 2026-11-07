@@ -3,7 +3,7 @@ import SwiftUI
 private let kTokenKey = "token"
 private let kUserKey = "username"
 
-enum Stage { case checking, login, launcher, playing, installing, offer, backup, restore, panel }
+enum Stage { case checking, login, launcher, card, playing, installing, offer, backup, restore, panel }
 
 struct RootView: View {
     @State private var stage: Stage = .checking
@@ -26,6 +26,8 @@ struct RootView: View {
                 LauncherView(username: username, token: token, installed: installed,
                              go: { stage = $0 },
                              onLogout: { logOut() })
+            case .card:
+                GamerCardView(username: username, token: token) { stage = .playing }
             case .installing:
                 DataSetupView(token: token, onDone: { installDone() }, onClose: { stage = .launcher })
             case .offer:
@@ -72,7 +74,7 @@ struct RootView: View {
         let t = token
         Task {
             // the update gate: new server packs are downloaded first, so everyone plays with the same cars and parts
-            stage = await ModsGate.outOfDate(token: t) ? .installing : .playing
+            stage = await ModsGate.outOfDate(token: t) ? .installing : .card     // gamer card + Continue, then the game
         }
     }
 

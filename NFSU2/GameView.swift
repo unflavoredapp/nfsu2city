@@ -12,10 +12,16 @@ struct GameContainer: View {
     @State private var revealCount = 0
     @AppStorage("chatOn") private var chatOn = true
     @AppStorage("voiceOn") private var voiceOn = true
+    @StateObject private var splash = SplashModel()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            GameWebView(url: url, token: token, username: username, auto: auto)
+            GameWebView(url: url, token: token, username: username, auto: auto, splash: auto ? splash : nil)
+
+            // Starting / loading screen on the loading-screen art, over the page until the game canvas is up.
+            if auto && !splash.done {
+                GameLoadingView(model: splash).transition(.opacity)
+            }
 
             if auto && chatOn { ChatOverlay(token: token, username: username) }
             if auto && voiceOn { VoiceOverlay() }
@@ -40,6 +46,11 @@ struct GameContainer: View {
             UIApplication.shared.isIdleTimerDisabled = true
             if auto && voiceOn { VoiceModel.configureAudio() }
         }
+        .task {
+            // safety net: never leave the loading screen up for good if the page never reports back
+            try? await Task.sleep(nanoseconds: 100_000_000_000)
+            splash.finish()
+        }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             VoiceModel.shared.reset()
@@ -61,6 +72,7 @@ struct GameWebView: UIViewRepresentable {
     let token: String
     let username: String
     var auto = true
+    var splash: SplashModel? = nil      // the native starting/loading screen the page reports to
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
@@ -78,24 +90,21 @@ struct GameWebView: UIViewRepresentable {
         cfg.userContentController.addUserScript(
             WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
-        // The app already asked for the username: cover the launcher page with a plain splash, press the
-        // page's own Play the moment it is ready, and lift the splash once the game canvas is up.
+        // The app already asked for the username: the app's own starting/loading screen (SwiftUI, on the
+        // loading-screen art) covers the page. This script reports the page's progress to it, presses the
+        // page's own Play the moment it is ready, and tells the app to lift the screen once the game canvas is up.
         let autoJS = #"""
         (function(){
-          var t0=Date.now(),tc=0,clicked=false,gone=false;
-          function splash(){
-            if(gone||document.getElementById('nfsu2-splash')||!document.documentElement)return;
-            var o=document.createElement('div');o.id='nfsu2-splash';
-            o.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font:italic 800 30px -apple-system,Helvetica,sans-serif;letter-spacing:1px';
-            o.innerHTML='<div>NFSU2.CITY</div><div id="nfsu2-sp" style="margin-top:14px;font:500 14px -apple-system,Helvetica,sans-serif;color:#999;letter-spacing:0">Loading\u2026</div>';
-            document.documentElement.appendChild(o);
-          }
-          function lift(){gone=true;clearInterval(iv);var o=document.getElementById('nfsu2-splash');if(o)o.remove();}
-          splash();
+          var t0=Date.now(),tc=0,clicked=false,last='';
+          function post(t,d){try{window.webkit.messageHandlers.splash.postMessage({t:t,d:!!d})}catch(e){}}
+          function lift(){clearInterval(iv);post('',true);}
+          post('Loading\u2026',false);
           var iv=setInterval(function(){
-            splash();
-            var sp=document.getElementById('nfsu2-sp');
-            if(sp&&document.body){var m=(document.body.innerText||'').match(/Loading the game:[^\n]*/);if(m)sp.textContent=m[0];else if(clicked)sp.textContent='Starting\u2026';}
+            if(document.body){
+              var m=(document.body.innerText||'').match(/Loading the game:[^\n]*/);
+              var t=m?m[0]:(clicked?'Starting\u2026':'Loading\u2026');
+              if(t!==last){last=t;post(t,false);}
+            }
             if(!clicked){
               var b=document.getElementById('play');
               if(b&&!b.disabled){clicked=true;tc=Date.now();b.click();}
@@ -110,6 +119,7 @@ struct GameWebView: UIViewRepresentable {
         if self.auto {
             cfg.userContentController.addUserScript(
                 WKUserScript(source: autoJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            if let splash { cfg.userContentController.add(SplashHandler(splash), name: "splash") }
         }
 
         // Proximity voice: the page-side script, and the channel it reports who is talking on.
@@ -136,6 +146,7 @@ struct GameWebView: UIViewRepresentable {
         if #available(iOS 16.4, *) { wv.isInspectable = true }
 
         context.coordinator.webView = wv
+        context.coordinator.splash = splash
 
         // The login's session goes in as the cookie the gate checks, then the game loads.
         installSessionCookie(on: cfg.websiteDataStore.httpCookieStore, token: token) {
@@ -155,6 +166,7 @@ struct GameWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let url: URL
         weak var webView: WKWebView?
+        weak var splash: SplashModel?
         private var retries = 0
 
         init(url: URL) { self.url = url }
@@ -170,6 +182,7 @@ struct GameWebView: UIViewRepresentable {
 
         // iOS killed the web content process (memory): bring the page straight back.
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            splash?.reset()                 // the loading screen covers the reload, like at first start
             webView.load(URLRequest(url: url))
         }
 
@@ -192,5 +205,17 @@ struct GameWebView: UIViewRepresentable {
                 wv.load(URLRequest(url: self.url))
             }
         }
+    }
+}
+
+/// Receives the page's loading progress / "game is up" message for the native loading screen.
+final class SplashHandler: NSObject, WKScriptMessageHandler {
+    private weak var model: SplashModel?
+    init(_ model: SplashModel) { self.model = model }
+
+    func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let d = message.body as? [String: Any] else { return }
+        if (d["d"] as? Bool) == true { model?.finish() }
+        else if let t = d["t"] as? String { model?.update(t) }
     }
 }
